@@ -46,9 +46,7 @@ function App() {
       <div className="flex h-screen bg-gray-50">
         <Sidebar activeTab={activeTab} onTabChange={setActiveTab} />
         <main className="flex-1 overflow-auto">
-          <div className="p-8">
-            {renderContent()}
-          </div>
+          <div className="p-8">{renderContent()}</div>
         </main>
       </div>
     </Router>
