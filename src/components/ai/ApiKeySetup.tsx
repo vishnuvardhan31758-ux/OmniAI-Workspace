@@ -50,7 +50,7 @@ export function ApiKeySetup({ onApiKeySet }: ApiKeySetupProps) {
       } else {
         throw new Error('API key validation failed');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('API key validation failed:', err);
       
       // Provide specific error messages

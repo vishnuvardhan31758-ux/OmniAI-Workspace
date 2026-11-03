@@ -1,3 +1,5 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.0';
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -9,89 +11,251 @@ interface GenerateRequest {
   contentType: string;
   tone: string;
   length: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  enhancers?: string[];
+  userId?: string;
+}
+
+interface AIProviderConfig {
+  provider: 'openai' | 'gemini' | 'nvidia';
+  apiKey: string;
+  baseUrl?: string;
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const { prompt, contentType, tone, length }: GenerateRequest = await req.json();
-
-    if (!prompt) {
-      return new Response(
-        JSON.stringify({ error: "Prompt is required" }),
-        {
-          status: 400,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
     }
 
-    // Here you would integrate with OpenAI or another AI service
-    // For demo purposes, we'll return a structured response
-    const generatedContent = `# Generated ${contentType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
 
-**Prompt**: ${prompt}
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Invalid token" }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
 
-**Content (${tone} tone, ${length} length):**
+    const body: GenerateRequest = await req.json();
+    const { prompt, contentType, tone, length, model, temperature, maxTokens, enhancers } = body;
 
-This is professionally generated content based on your specifications. The AI has carefully crafted this response to match your requested tone of "${tone}" and length preference of "${length}".
+    if (!prompt) {
+      return new Response(JSON.stringify({ error: "Prompt is required" }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
 
-## Key Points:
+    // Get user's AI provider config
+    const { data: config, error: configError } = await supabase
+      .from('ai_provider_configs')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .single();
 
-• **Engaging Opening**: Captures attention from the first sentence
-• **Clear Structure**: Well-organized content with logical flow  
-• **Target Audience**: Tailored for your specific audience needs
-• **Call to Action**: Includes compelling next steps
-• **SEO Optimization**: Incorporates relevant keywords naturally
+    if (configError || !config) {
+      return new Response(JSON.stringify({ 
+        error: "No AI provider configured. Please add your API keys in settings.",
+        requiresSetup: true 
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+      });
+    }
 
-## Content Body:
+    // Build system prompt based on content type, tone, length, enhancers
+    const systemPrompt = buildSystemPrompt(contentType, tone, length, enhancers || []);
+    const userPrompt = prompt;
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+    let generatedContent: string;
 
-Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+    switch (config.provider) {
+      case 'openai':
+        generatedContent = await callOpenAI(config, model || 'gpt-4o', systemPrompt, userPrompt, temperature, maxTokens);
+        break;
+      case 'gemini':
+        generatedContent = await callGemini(config, model || 'gemini-1.5-pro', systemPrompt, userPrompt, temperature, maxTokens);
+        break;
+      case 'nvidia':
+        generatedContent = await callNVIDIA(config, model || 'nvidia/nemotron-3-ultra-550b-a55b', systemPrompt, userPrompt, temperature, maxTokens);
+        break;
+      default:
+        throw new Error(`Unknown provider: ${config.provider}`);
+    }
 
-## Conclusion:
+    // Save generation to database
+    await supabase.from('generations').insert({
+      user_id: user.id,
+      tool_type: 'generate',
+      input_text: prompt,
+      output_text: generatedContent,
+      metadata: { contentType, tone, length, model: model || config.default_model, provider: config.provider }
+    });
 
-This generated content provides a solid foundation that can be further refined based on your specific requirements and brand guidelines. The structure and tone have been optimized for maximum engagement with your target audience.
-
----
-*Generated with ContentAI with Black Box AI - Professional AI Content Creation Platform*`;
-
-    return new Response(
-      JSON.stringify({ 
-        content: generatedContent,
-        success: true 
-      }),
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
-      }
-    );
+    return new Response(JSON.stringify({ 
+      content: generatedContent,
+      success: true,
+      provider: config.provider,
+      model: model || config.default_model
+    }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
 
   } catch (error) {
-    return new Response(
-      JSON.stringify({ 
-        error: "Internal server error",
-        details: error.message 
-      }),
-      {
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
-      }
-    );
+    console.error('AI generation error:', error);
+    return new Response(JSON.stringify({ 
+      error: "Internal server error",
+      details: error.message 
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    });
   }
 });
+
+function buildSystemPrompt(contentType: string, tone: string, length: string, enhancers: string[]): string {
+  const lengthGuide = {
+    'short': 'concise (200-400 words)',
+    'medium': 'moderate (500-1000 words)',
+    'long': 'comprehensive (1500-2500 words)',
+    'very-long': 'extensive (3000+ words)'
+  };
+
+  const toneGuide = {
+    'professional': 'formal, authoritative, and business-appropriate',
+    'casual': 'conversational, friendly, and approachable',
+    'creative': 'imaginative, expressive, and engaging',
+    'academic': 'scholarly, precise, and well-structured',
+    'persuasive': 'compelling, convincing, and action-oriented',
+    'technical': 'precise, detailed, and technically accurate'
+  };
+
+  let prompt = `You are an expert content creator. Generate high-quality ${contentType.replace('-', ' ')} content.
+
+Requirements:
+- Tone: ${toneGuide[tone as keyof typeof toneGuide] || tone}
+- Length: ${lengthGuide[length as keyof typeof lengthGuide] || length}
+- Content Type: ${contentType.replace('-', ' ')}
+
+`;
+
+  if (enhancers.length > 0) {
+    const enhancerDescriptions: Record<string, string> = {
+      'tone-optimizer': 'Optimize the tone for the target audience',
+      'seo-enhancer': 'Include relevant keywords naturally for search optimization',
+      'readability-improver': 'Use clear structure, short paragraphs, and accessible language',
+      'fact-checker': 'Ensure factual accuracy and cite sources where appropriate',
+      'creativity-booster': 'Add unique perspectives, analogies, and creative elements',
+      'structure-optimizer': 'Use clear headings, bullet points, and logical flow'
+    };
+
+    prompt += "Enhancements to apply:\n";
+    enhancers.forEach(e => {
+      if (enhancerDescriptions[e]) {
+        prompt += `- ${enhancerDescriptions[e]}\n`;
+      }
+    });
+    prompt += "\n";
+  }
+
+  prompt += `Provide complete, well-structured, publication-ready content. Do not use placeholder text. Include proper formatting with headings and sections where appropriate.`;
+
+  return prompt;
+}
+
+async function callOpenAI(config: AIProviderConfig, model: string, systemPrompt: string, userPrompt: string, temperature?: number, maxTokens?: number): Promise<string> {
+  const response = await fetch(`${config.baseUrl || 'https://api.openai.com/v1'}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: temperature ?? 0.7,
+      max_tokens: maxTokens ?? 4000,
+      stream: false
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`OpenAI API error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content || '';
+}
+
+async function callGemini(config: AIProviderConfig, model: string, systemPrompt: string, userPrompt: string, temperature?: number, maxTokens?: number): Promise<string> {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\nUser Request: ${userPrompt}` }] }],
+      generationConfig: {
+        temperature: temperature ?? 0.7,
+        maxOutputTokens: maxTokens ?? 4000,
+        topP: 0.8,
+        topK: 40
+      }
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Gemini API error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.candidates[0]?.content?.parts[0]?.text || '';
+}
+
+async function callNVIDIA(config: AIProviderConfig, model: string, systemPrompt: string, userPrompt: string, temperature?: number, maxTokens?: number): Promise<string> {
+  const response = await fetch(`${config.baseUrl || 'https://integrate.api.nvidia.com/v1'}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: temperature ?? 0.7,
+      max_tokens: maxTokens ?? 4000,
+      stream: false
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`NVIDIA API error: ${error.error?.message || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0]?.message?.content || '';
+}

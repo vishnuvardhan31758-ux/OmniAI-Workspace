@@ -3,7 +3,7 @@ import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
-import { FolderOpen, Plus, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { FolderOpen, Plus, Edit, Trash2 } from 'lucide-react';
 
 interface Project {
   id: string;

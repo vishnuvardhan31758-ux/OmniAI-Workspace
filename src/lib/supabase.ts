@@ -96,6 +96,7 @@ export type Database = {
           output_text: string;
           is_favorite: boolean;
           created_at: string;
+          metadata?: Record<string, any> | null;
         };
         Insert: {
           id?: string;
@@ -106,6 +107,7 @@ export type Database = {
           output_text: string;
           is_favorite?: boolean;
           created_at?: string;
+          metadata?: Record<string, any> | null;
         };
         Update: {
           id?: string;
@@ -115,7 +117,70 @@ export type Database = {
           input_text?: string;
           output_text?: string;
           is_favorite?: boolean;
+          metadata?: Record<string, any> | null;
         };
+      };
+      ai_provider_configs: {
+        Row: {
+          id: string;
+          user_id: string;
+          provider: 'openai' | 'gemini' | 'nvidia';
+          api_key_encrypted: string;
+          base_url: string | null;
+          default_model: string;
+          is_active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          provider: 'openai' | 'gemini' | 'nvidia';
+          api_key_encrypted: string;
+          base_url?: string | null;
+          default_model: string;
+          is_active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          provider?: 'openai' | 'gemini' | 'nvidia';
+          api_key_encrypted?: string;
+          base_url?: string | null;
+          default_model?: string;
+          is_active?: boolean;
+          updated_at?: string;
+        };
+      };
+      user_roles: {
+        Row: {
+          id: string;
+          user_id: string;
+          role: 'admin' | 'user';
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          role: 'admin' | 'user';
+          created_at?: string;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          role?: 'admin' | 'user';
+          created_by?: string | null;
+        };
+      };
+    };
+    Functions: {
+      is_admin: {
+        Args: { user_id?: string };
+        Returns: boolean;
       };
     };
   };

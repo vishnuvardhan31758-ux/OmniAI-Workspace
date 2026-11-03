@@ -7,9 +7,11 @@ import { VoiceCommandsPanel } from './components/assistant/VoiceCommandsPanel';
 import { SystemMonitor } from './components/assistant/SystemMonitor';
 import { Projects } from './components/workspace/Projects';
 import { History } from './components/workspace/History';
+import { SettingsPanel } from './components/auth/SettingsPanel';
 
 function App() {
   const [activeTab, setActiveTab] = useState('assistant');
+  const [showSettings, setShowSettings] = useState(false);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -31,9 +33,7 @@ function App() {
         return (
           <div className="space-y-6">
             <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-              <p className="text-gray-600">Settings panel coming soon...</p>
-            </div>
+            <SettingsPanel onClose={() => setShowSettings(false)} />
           </div>
         );
       default:
@@ -48,6 +48,9 @@ function App() {
         <main className="flex-1 overflow-auto">
           <div className="p-8">{renderContent()}</div>
         </main>
+        {showSettings && (
+          <SettingsPanel onClose={() => setShowSettings(false)} />
+        )}
       </div>
     </Router>
   );

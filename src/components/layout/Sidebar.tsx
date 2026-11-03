@@ -7,8 +7,7 @@ import {
   Settings,
   Monitor,
   Mic,
-  Activity,
-  Smartphone
+  Activity
 } from 'lucide-react';
 
 interface SidebarProps {

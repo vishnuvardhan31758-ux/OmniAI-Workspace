@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { Card } from '../ui/Card';
-import { Button } from '../ui/Button';
 import { History as HistoryIcon, Heart, Copy, Trash2, Filter } from 'lucide-react';
 
 interface Generation {

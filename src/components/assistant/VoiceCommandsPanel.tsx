@@ -4,11 +4,8 @@ import { Button } from '../ui/Button';
 import { 
   Mic, 
   MicOff, 
-  Volume2, 
   MessageSquare, 
-  Settings,
   Play,
-  Pause,
   Trash2,
   Download,
   Languages

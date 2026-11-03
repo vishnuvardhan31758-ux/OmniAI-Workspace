@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Mic, MicOff, Monitor, Smartphone, Tv, Cpu, HardDrive, Wifi, Battery, Volume2, Copyright as Brightness, Power, Settings, Globe, MessageSquare, Zap } from 'lucide-react';
+import { Mic, MicOff, Monitor, Smartphone, Tv, Cpu, Wifi, Volume2, Copyright as Brightness, Power, Globe, MessageSquare, Zap } from 'lucide-react';
 import { deviceController } from '../../lib/system/device-controller';
 import { speechRecognition } from '../../lib/voice/speech-recognition';
 import { translate, Language } from '../../lib/languages';

@@ -6,7 +6,7 @@ import { Input } from '../ui/Input';
 import { ModelSelector } from '../ai/ModelSelector';
 import { EnhancerSelector } from '../ai/EnhancerSelector';
 import { AdvancedSettings } from '../ai/AdvancedSettings';
-import { ApiKeySetup } from '../ai/ApiKeySetup';
+import { SettingsPanel } from '../auth/SettingsPanel';
 import { 
   Brain, 
   Copy, 
@@ -23,62 +23,71 @@ import {
   Target,
   Clock,
   Key,
-  AlertTriangle
+  AlertTriangle,
+  Settings,
+  CheckCircle,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
-import { aiEngine } from '../../lib/ai/transformers';
-import { openaiClient } from '../../lib/ai/openai-client';
+import { supabase } from '../../lib/supabase';
 import { TransformerConfig, AIResponse } from '../../types/ai';
 
-type ToolType = 'unified';
+type ToolType = 'generate' | 'rewrite' | 'summarize' | 'translate';
+
+interface GenerationResult {
+  content: string;
+  success: boolean;
+  provider: string;
+  model: string;
+}
 
 export function UnifiedAITool() {
-  const [selectedTool, setSelectedTool] = useState<ToolType>('unified');
+  const [selectedTool, setSelectedTool] = useState<ToolType>('generate');
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<AIResponse | null>(null);
   const [showApiKeySetup, setShowApiKeySetup] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isApiConfigured, setIsApiConfigured] = useState(false);
-  
-  // Unified tool settings
-  const [taskType, setTaskType] = useState('generate');
-  const [contentType, setContentType] = useState('blog-post');
-  const [tone, setTone] = useState('professional');
-  const [length, setLength] = useState('medium');
-  const [rewriteStyle, setRewriteStyle] = useState('improve');
-  const [summaryType, setSummaryType] = useState('bullet-points');
-  const [summaryLength, setSummaryLength] = useState('medium');
-  const [fromLang, setFromLang] = useState('en');
-  const [toLang, setToLang] = useState('es');
+  const [error, setError] = useState<string | null>(null);
   
   const [config, setConfig] = useState<TransformerConfig>({
-    model: 'gpt-4-turbo',
+    model: 'gpt-4o',
     temperature: 0.7,
     maxTokens: 2000,
     enhancers: []
   });
 
-  // Check if API is configured on component mount
+  // Check if user has AI config on component mount
   useEffect(() => {
-    const checkApiConfiguration = () => {
-      const savedApiKey = localStorage.getItem('openai_api_key');
-      if (savedApiKey && savedApiKey.length > 10 && savedApiKey.startsWith('sk-')) {
-        aiEngine.setApiKey(savedApiKey);
-        setIsApiConfigured(openaiClient.isConfigured());
-      } else {
-        setIsApiConfigured(false);
-      }
-    };
-    
     checkApiConfiguration();
   }, []);
 
-  const taskTypes = [
-    { value: 'generate', label: 'Generate Content', icon: PenTool, description: 'Create new content from scratch' },
-    { value: 'rewrite', label: 'Rewrite Content', icon: RefreshCw, description: 'Improve and refine existing content' },
-    { value: 'summarize', label: 'Summarize Content', icon: FileText, description: 'Create concise summaries' },
-    { value: 'translate', label: 'Translate Content', icon: Languages, description: 'Translate between languages' }
-  ];
+  const checkApiConfiguration = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('ai_provider_configs')
+        .select('is_active')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .single();
+
+      setIsApiConfigured(!!data);
+    } catch {
+      setIsApiConfigured(false);
+    }
+  };
+
+  const taskTypes: Record<ToolType, { label: string; icon: any; description: string }> = {
+    generate: { label: 'Generate Content', icon: PenTool, description: 'Create new content from scratch' },
+    rewrite: { label: 'Rewrite Content', icon: RefreshCw, description: 'Improve and refine existing content' },
+    summarize: { label: 'Summarize Content', icon: FileText, description: 'Create concise summaries' },
+    translate: { label: 'Translate Content', icon: Languages, description: 'Translate between languages' }
+  };
 
   const contentTypes = [
     { value: 'blog-post', label: 'Blog Post' },
@@ -158,91 +167,124 @@ export function UnifiedAITool() {
     { code: 'th', name: 'Thai' }
   ];
 
+  const [contentType, setContentType] = useState('blog-post');
+  const [tone, setTone] = useState('professional');
+  const [length, setLength] = useState('medium');
+  const [rewriteStyle, setRewriteStyle] = useState('improve');
+  const [summaryType, setSummaryType] = useState('bullet-points');
+  const [summaryLength, setSummaryLength] = useState('medium');
+  const [fromLang, setFromLang] = useState('en');
+  const [toLang, setToLang] = useState('es');
+
   const handleProcess = async () => {
     if (!input.trim()) return;
-
-    // Check API configuration before processing
-    const isConfigured = openaiClient.isConfigured();
-    setIsApiConfigured(isConfigured);
-    
-    console.log('Starting content processing:', {
-      taskType,
-      inputLength: input.length,
-      config: config,
-      apiConfigured: isConfigured
-    });
 
     setLoading(true);
     setOutput('');
     setResponse(null);
+    setError(null);
     
     try {
-      let prompt = '';
-      let contextType = '';
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
 
-      switch (taskType) {
+      let endpoint = '';
+      let body: any = {};
+
+      switch (selectedTool) {
         case 'generate':
-          prompt = `Create a ${contentTypes.find(t => t.value === contentType)?.label} with a ${tone} tone and ${length} length about: ${input}`;
-          contextType = 'content-generation';
-          break;
-        case 'rewrite':
-          prompt = `Rewrite the following content to ${rewriteStyles.find(s => s.value === rewriteStyle)?.label}: ${input}`;
-          contextType = 'content-rewriting';
-          break;
-        case 'summarize':
-          prompt = `Create a ${summaryTypes.find(t => t.value === summaryType)?.label} summary (${summaryLength} length) of: ${input}`;
-          contextType = 'content-summarization';
-          break;
-        case 'translate':
-          const fromLangName = languages.find(l => l.code === fromLang)?.name;
-          const toLangName = languages.find(l => l.code === toLang)?.name;
-          prompt = `Translate the following text from ${fromLangName} to ${toLangName}: ${input}`;
-          contextType = 'content-translation';
-          break;
-      }
-
-      console.log('Generated prompt:', prompt.substring(0, 200) + '...');
-
-      const aiResponse = await aiEngine.processRequest({
-        prompt,
-        config: {
-          ...config,
-          enhancers: [...(config.enhancers || []), `${taskType}-optimizer`]
-        },
-        context: {
-          contentType: contextType,
-          toolType: taskType,
-          userPreferences: {
+          endpoint = 'ai-generate';
+          body = {
+            prompt: input,
             contentType,
             tone,
             length,
-            rewriteStyle,
+            model: config.model,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens,
+            enhancers: config.enhancers
+          };
+          break;
+        case 'rewrite':
+          endpoint = 'ai-rewrite';
+          body = {
+            text: input,
+            style: rewriteStyle,
+            model: config.model,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens
+          };
+          break;
+        case 'summarize':
+          endpoint = 'ai-summarize';
+          body = {
+            text: input,
             summaryType,
             summaryLength,
+            model: config.model,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens
+          };
+          break;
+        case 'translate':
+          endpoint = 'ai-translate';
+          body = {
+            text: input,
             fromLang,
-            toLang
-          }
+            toLang,
+            model: config.model,
+            temperature: config.temperature,
+            maxTokens: config.maxTokens
+          };
+          break;
+      }
+
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data: GenerationResult = await response.json();
+
+      if (!response.ok) {
+        if (data.requiresSetup) {
+          setIsApiConfigured(false);
+          throw new Error('No AI provider configured. Please add your API keys in settings.');
         }
+        throw new Error(data.error || 'Generation failed');
+      }
+
+      setOutput(data.content);
+      setResponse({
+        content: data.content,
+        model: data.model,
+        confidence: 0.95,
+        processingTime: 0,
+        enhancementsApplied: config.enhancers || [],
+        suggestions: [
+          'Configure different AI providers for varied results',
+          'Try adjusting temperature for different creativity levels',
+          'Use enhancers to improve specific aspects of the output'
+        ]
       });
 
-      console.log('AI Response received:', {
-        contentLength: aiResponse.content.length,
-        confidence: aiResponse.confidence,
-        model: aiResponse.model
-      });
+      // Refresh config status
+      checkApiConfiguration();
 
-      setOutput(aiResponse.content);
-      setResponse(aiResponse);
-    } catch (error) {
-      console.error('Processing failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    } catch (err: any) {
+      console.error('Processing failed:', err);
+      const errorMessage = err.message || 'Unknown error occurred';
+      setError(errorMessage);
       
-      // Check if it's an API key related error
-      if (errorMessage.includes('API key') || errorMessage.includes('not configured')) {
+      if (errorMessage.includes('configured') || errorMessage.includes('API key')) {
         setIsApiConfigured(false);
-        setOutput(`# API Configuration Required\n\n**Error**: ${errorMessage}\n\n**To resolve this issue:**\n1. Click the "Configure API" button above\n2. Enter your valid Gemini API key\n3. The key should start with "AIza" and be at least 20 characters long\n4. Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)\n\n*The system is currently using demo mode with simulated responses.*`);
+        setOutput(`# API Configuration Required\n\n**Error**: ${errorMessage}\n\n**To resolve:**\n1. Click the Settings button (⚙️) in the header\n2. Add your OpenAI, Gemini, or NVIDIA API key\n3. Test the connection and activate\n\n*Get API keys from:*\n- OpenAI: https://platform.openai.com/api-keys\n- Gemini: https://makersuite.google.com/app/apikey\n- NVIDIA: https://build.nvidia.com/`);
       } else {
-        setOutput(`# Processing Error\n\n**Error**: ${errorMessage}\n\n**Troubleshooting Steps**:\n1. Check your internet connection\n2. Verify API key configuration\n3. Try refreshing the page\n4. Contact support if the issue persists\n\n*The system will attempt to use fallback content generation.*`);
+        setOutput(`# Processing Error\n\n**Error**: ${errorMessage}\n\n**Try:**\n1. Check your internet connection\n2. Verify API key configuration in Settings\n3. Try a different model or provider\n4. Refresh the page`);
       }
     } finally {
       setLoading(false);
@@ -258,43 +300,26 @@ export function UnifiedAITool() {
     setToLang(fromLang);
   };
 
-  const handleApiKeySet = () => {
-    setShowApiKeySetup(false);
-    setIsApiConfigured(openaiClient.isConfigured());
-  };
-
   const getInputLabel = () => {
-    switch (taskType) {
-      case 'generate':
-        return 'Describe what you want to create';
-      case 'rewrite':
-        return 'Content to rewrite';
-      case 'summarize':
-        return 'Content to summarize';
-      case 'translate':
-        return 'Text to translate';
-      default:
-        return 'Your input';
+    switch (selectedTool) {
+      case 'generate': return 'Describe what you want to create';
+      case 'rewrite': return 'Content to rewrite';
+      case 'summarize': return 'Content to summarize';
+      case 'translate': return 'Text to translate';
     }
   };
 
   const getInputPlaceholder = () => {
-    switch (taskType) {
-      case 'generate':
-        return 'Describe the content you want to generate... (e.g., "Write about sustainable living practices for busy professionals")';
-      case 'rewrite':
-        return 'Paste your content here to rewrite it... (e.g., existing blog post, email, or article)';
-      case 'summarize':
-        return 'Paste your long-form content here to summarize... (e.g., research paper, article, or report)';
-      case 'translate':
-        return 'Enter text you want to translate... (e.g., "Welcome to our platform")';
-      default:
-        return 'Enter your text here...';
+    switch (selectedTool) {
+      case 'generate': return 'Describe the content you want to generate... (e.g., "Write about sustainable living practices for busy professionals")';
+      case 'rewrite': return 'Paste your content here to rewrite it... (e.g., existing blog post, email, or article)';
+      case 'summarize': return 'Paste your long-form content here to summarize... (e.g., research paper, article, or report)';
+      case 'translate': return 'Enter text you want to translate... (e.g., "Welcome to our platform")';
     }
   };
 
   const renderTaskSpecificSettings = () => {
-    switch (taskType) {
+    switch (selectedTool) {
       case 'generate':
         return (
           <div className="space-y-4">
@@ -427,11 +452,13 @@ export function UnifiedAITool() {
     }
   };
 
-  const selectedTaskType = taskTypes.find(task => task.value === taskType);
+  const currentTask = taskTypes[selectedTool];
 
   return (
     <div className="space-y-6">
-      {showApiKeySetup && <ApiKeySetup onApiKeySet={handleApiKeySet} />}
+      {showSettings && (
+        <SettingsPanel onClose={() => setShowSettings(false)} />
+      )}
       
       <div className="flex items-center justify-between">
         <div>
@@ -442,16 +469,13 @@ export function UnifiedAITool() {
           <p className="text-gray-600">Unified AI-powered content creation and enhancement platform</p>
         </div>
         <div className="flex items-center space-x-3">
-          {!isApiConfigured && (
-            <Button
-              onClick={() => setShowApiKeySetup(true)}
-              variant="outline"
-              icon={Key}
-              className="border-warning-300 text-warning-700 hover:bg-warning-50"
-            >
-              Configure API
-            </Button>
-          )}
+          <Button
+            onClick={() => setShowSettings(true)}
+            variant="ghost"
+            size="sm"
+            icon={Settings}
+            aria-label="AI Provider Settings"
+          />
           <div className={`flex items-center space-x-2 px-4 py-2 rounded-lg border ${
             isApiConfigured 
               ? 'bg-gradient-to-r from-success-50 to-primary-50 border-success-200' 
@@ -459,13 +483,13 @@ export function UnifiedAITool() {
           }`}>
             {isApiConfigured ? (
               <>
-                <Sparkles className="w-4 h-4 text-success-600" />
-                <span className="text-sm font-medium text-success-700">OpenAI Connected</span>
+                <CheckCircle className="w-4 h-4 text-success-600" />
+                <span className="text-sm font-medium text-success-700">AI Connected</span>
               </>
             ) : (
               <>
                 <AlertTriangle className="w-4 h-4 text-warning-600" />
-                <span className="text-sm font-medium text-warning-700">Demo Mode</span>
+                <span className="text-sm font-medium text-warning-700">Configure AI</span>
               </>
             )}
           </div>
@@ -477,19 +501,20 @@ export function UnifiedAITool() {
           <div className="flex items-start space-x-3">
             <AlertTriangle className="w-5 h-5 text-warning-600 mt-0.5" />
             <div>
-              <h3 className="text-sm font-semibold text-warning-800 mb-1">Demo Mode Active</h3>
+              <h3 className="text-sm font-semibold text-warning-800 mb-1">AI Provider Not Configured</h3>
               <p className="text-sm text-warning-700 mb-3">
-                You're currently using simulated AI responses. Connect your OpenAI API key to unlock real AI-powered content generation with dynamic, intelligent responses.
+                Click the Settings button (⚙️) above to add your OpenAI, Google Gemini, or NVIDIA API key for real AI-powered content generation.
               </p>
-              <Button
-                onClick={() => setShowApiKeySetup(true)}
-                size="sm"
-                icon={Key}
-                className="bg-warning-600 hover:bg-warning-700"
-              >
-                Connect OpenAI API
-              </Button>
             </div>
+          </div>
+        </Card>
+      )}
+
+      {error && isApiConfigured && (
+        <Card className="border-error-200 bg-error-50">
+          <div className="flex items-center space-x-3">
+            <AlertCircle className="w-5 h-5 text-error-600" />
+            <div className="text-sm text-error-700">{error}</div>
           </div>
         </Card>
       )}
@@ -501,33 +526,30 @@ export function UnifiedAITool() {
           <span>Select AI Task</span>
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {taskTypes.map((task) => {
-            const Icon = task.icon;
-            return (
-              <button
-                key={task.value}
-                onClick={() => setTaskType(task.value)}
-                className={`
-                  p-4 rounded-lg border-2 transition-all duration-200 text-left
-                  ${taskType === task.value
-                    ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200'
-                    : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }
-                `}
-              >
-                <div className={`w-10 h-10 rounded-lg bg-gradient-to-r ${
-                  task.value === 'generate' ? 'from-blue-500 to-blue-600' :
-                  task.value === 'rewrite' ? 'from-green-500 to-green-600' :
-                  task.value === 'summarize' ? 'from-purple-500 to-purple-600' :
-                  'from-orange-500 to-orange-600'
-                } flex items-center justify-center mb-3`}>
-                  <Icon className="w-5 h-5 text-white" />
-                </div>
-                <h3 className="font-semibold text-gray-900 mb-1">{task.label}</h3>
-                <p className="text-sm text-gray-600">{task.description}</p>
-              </button>
-            );
-          })}
+          {(Object.entries(taskTypes) as [ToolType, typeof taskTypes[ToolType]][]).map(([value, task]) => (
+            <button
+              key={value}
+              onClick={() => setSelectedTool(value)}
+              className={`
+                p-4 rounded-lg border-2 transition-all duration-200 text-left
+                ${selectedTool === value
+                  ? 'border-primary-500 bg-primary-50 ring-2 ring-primary-200'
+                  : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }
+              `}
+            >
+              <div className={`w-10 h-10 rounded-lg bg-gradient-to-r ${
+                value === 'generate' ? 'from-blue-500 to-blue-600' :
+                value === 'rewrite' ? 'from-green-500 to-green-600' :
+                value === 'summarize' ? 'from-purple-500 to-purple-600' :
+                'from-orange-500 to-orange-600'
+              } flex items-center justify-center mb-3`}>
+                <task.icon className="w-5 h-5 text-white" />
+              </div>
+              <h3 className="font-semibold text-gray-900 mb-1">{task.label}</h3>
+              <p className="text-sm text-gray-600">{task.description}</p>
+            </button>
+          ))}
         </div>
       </Card>
 
@@ -544,8 +566,8 @@ export function UnifiedAITool() {
           {/* Task-specific settings */}
           <Card>
             <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center space-x-2">
-              {selectedTaskType && <selectedTaskType.icon className="w-5 h-5 text-primary-600" />}
-              <span>{selectedTaskType?.label} Settings</span>
+              <currentTask.icon className="w-5 h-5 text-primary-600" />
+              <span>{currentTask.label} Settings</span>
             </h3>
             {renderTaskSpecificSettings()}
           </Card>
@@ -569,8 +591,8 @@ export function UnifiedAITool() {
         <div className="xl:col-span-2 space-y-6">
           <Card>
             <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center space-x-2">
-              {selectedTaskType && <selectedTaskType.icon className="w-5 h-5 text-primary-600" />}
-              <span>{selectedTaskType?.label}</span>
+              <currentTask.icon className="w-5 h-5 text-primary-600" />
+              <span>{currentTask.label}</span>
             </h2>
             
             <div className="space-y-4">
@@ -586,22 +608,22 @@ export function UnifiedAITool() {
               <Button
                 onClick={handleProcess}
                 loading={loading}
-                disabled={!input.trim() || loading || (taskType === 'translate' && fromLang === toLang)}
-                icon={selectedTaskType?.icon}
+                disabled={!input.trim() || loading || (selectedTool === 'translate' && fromLang === toLang)}
+                icon={currentTask.icon}
                 className={`w-full bg-gradient-to-r ${
-                  taskType === 'generate' ? 'from-blue-500 to-blue-600' :
-                  taskType === 'rewrite' ? 'from-green-500 to-green-600' :
-                  taskType === 'summarize' ? 'from-purple-500 to-purple-600' :
+                  selectedTool === 'generate' ? 'from-blue-500 to-blue-600' :
+                  selectedTool === 'rewrite' ? 'from-green-500 to-green-600' :
+                  selectedTool === 'summarize' ? 'from-purple-500 to-purple-600' :
                   'from-orange-500 to-orange-600'
                 } hover:opacity-90`}
               >
                 {loading ? (
                   <span className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Processing...</span>
                   </span>
                 ) : (
-                  `${selectedTaskType?.label}`
+                  `${currentTask.label}`
                 )}
               </Button>
             </div>
@@ -633,7 +655,7 @@ export function UnifiedAITool() {
               <div className="mb-4 p-4 bg-gradient-to-r from-green-50 to-blue-50 rounded-lg border border-green-200">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-600">Model:</span>
+                    <span className="text-gray-600">Provider:</span>
                     <div className="font-semibold text-gray-900">{response.model}</div>
                   </div>
                   <div>
@@ -641,12 +663,12 @@ export function UnifiedAITool() {
                     <div className="font-semibold text-green-600">{(response.confidence * 100).toFixed(1)}%</div>
                   </div>
                   <div>
-                    <span className="text-gray-600">Processing:</span>
-                    <div className="font-semibold text-blue-600">{response.processingTime}ms</div>
+                    <span className="text-gray-600">Task:</span>
+                    <div className="font-semibold text-blue-600 capitalize">{selectedTool}</div>
                   </div>
                   <div>
-                    <span className="text-gray-600">Task:</span>
-                    <div className="font-semibold text-purple-600 capitalize">{taskType}</div>
+                    <span className="text-gray-600">Enhancers:</span>
+                    <div className="font-semibold text-purple-600">{response.enhancementsApplied.length}</div>
                   </div>
                 </div>
               </div>
@@ -680,15 +702,15 @@ export function UnifiedAITool() {
             ) : (
               <div className="text-center py-16 text-gray-500">
                 <div className={`w-16 h-16 mx-auto mb-4 bg-gradient-to-br ${
-                  taskType === 'generate' ? 'from-blue-100 to-blue-200' :
-                  taskType === 'rewrite' ? 'from-green-100 to-green-200' :
-                  taskType === 'summarize' ? 'from-purple-100 to-purple-200' :
+                  selectedTool === 'generate' ? 'from-blue-100 to-blue-200' :
+                  selectedTool === 'rewrite' ? 'from-green-100 to-green-200' :
+                  selectedTool === 'summarize' ? 'from-purple-100 to-purple-200' :
                   'from-orange-100 to-orange-200'
                 } rounded-full flex items-center justify-center`}>
-                  {selectedTaskType && <selectedTaskType.icon className="w-8 h-8 text-white" />}
+                  <currentTask.icon className="w-8 h-8 text-white" />
                 </div>
                 <p className="text-lg font-medium mb-2">AI Ready</p>
-                <p>Your {selectedTaskType?.label.toLowerCase()} output will appear here</p>
+                <p>Your {currentTask.label.toLowerCase()} output will appear here</p>
               </div>
             )}
           </Card>

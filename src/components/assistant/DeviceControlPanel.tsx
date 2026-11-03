@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
-import { Monitor, Smartphone, Tv, Wifi, WifiOff, Power, Volume2, VolumeX, Copyright as Brightness, Settings, RefreshCw, Play, Pause, SkipForward, SkipBack } from 'lucide-react';
+import { Monitor, Smartphone, Tv, Wifi, WifiOff, Power, Volume2, VolumeX, Copyright as Brightness, RefreshCw, Play, SkipForward, SkipBack } from 'lucide-react';
 import { deviceController } from '../../lib/system/device-controller';
 import { translate, Language } from '../../lib/languages';
 import { DeviceControl, SystemCommand } from '../../types/assistant';

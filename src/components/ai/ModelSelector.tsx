@@ -1,6 +1,5 @@
 import React from 'react';
 import { AI_MODELS } from '../../lib/ai/models';
-import { AIModel } from '../../types/ai';
 
 interface ModelSelectorProps {
   selectedModel: string;

@@ -12,8 +12,7 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Globe,
-  Smartphone
+  Globe
 } from 'lucide-react';
 import { deviceController } from '../../lib/system/device-controller';
 import { translate, Language } from '../../lib/languages';

@@ -56,7 +56,7 @@ export function AuthForm({ onSuccess }: AuthFormProps) {
       } else {
         onSuccess();
       }
-    } catch (err) {
+    } catch {
       setError('An unexpected error occurred');
     } finally {
       setLoading(false);
