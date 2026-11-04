@@ -11,7 +11,7 @@
 
 ---
 
-## ✨ Features
+##  Features
 
 | Feature | Description |
 |---------|-------------|
@@ -25,7 +25,7 @@
 
 ---
 
-## 🚀 Quick Start
+##  Quick Start
 
 ### Prerequisites
 - Node.js 20+
@@ -69,7 +69,7 @@ supabase functions deploy
 
 ---
 
-## 🏗 Architecture
+##  Architecture
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
@@ -127,7 +127,7 @@ OmniAI-Workspace/
 
 ---
 
-## 🔐 Security
+##  Security
 
 - **API Key Encryption**: pgcrypto / Web Crypto API
 - **Row Level Security**: All tables protected by RLS
@@ -161,7 +161,7 @@ npm run build
 
 ---
 
-## 📦 Adding New AI Providers
+##  Adding New AI Providers
 
 1. Add to `ai_provider_configs` CHECK constraint (migration)
 2. Add case in edge functions' switch statements
@@ -171,7 +171,7 @@ npm run build
 
 ---
 
-## 💰 Cost Estimation (Monthly)
+## Cost Estimation (Monthly)
 
 | Service | Free Tier | Paid Estimate |
 |---------|-----------|---------------|
@@ -183,13 +183,10 @@ npm run build
 
 ---
 
-## 📄 License
-
-MIT License - Use freely for personal or commercial projects.
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 1. Fork → feature branch → PR
 2. Run `npm run lint && npx tsc --noEmit`
@@ -206,4 +203,4 @@ MIT License - Use freely for personal or commercial projects.
 
 ---
 
-Built with ❤️ for the next generation of AI-driven productivity.
+Built with for the next generation of AI-driven productivity.
